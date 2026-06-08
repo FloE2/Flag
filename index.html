@@ -771,7 +771,7 @@
 
       <div class="flag-card" id="flag-card" style="flex:1;">
         <div class="flag-img-wrap" id="flag-img-wrap">
-          <div class="flag-fallback" id="flag-fallback">🏳</div>
+          <div style="font-size:3rem">🏳</div>
         </div>
         <div class="hint-zone" id="hint-zone"></div>
       </div>
@@ -1165,27 +1165,31 @@ function nextQuestion() {
   usedCountries.push(currentCountry);
   currentChoices = getChoices(currentCountry, palier);
 
-  // Render flag
+  // Render flag — on évite de réutiliser un nœud détaché
   const imgWrap = document.getElementById('flag-img-wrap');
-  const fallback = document.getElementById('flag-fallback');
+  const countryCode = currentCountry.code;
+  const countryEmoji = currentCountry.emoji;
+
+  // Affiche un spinner en attendant l'image
+  imgWrap.innerHTML = '<div style="font-size:3rem;line-height:1">⏳</div>';
 
   const img = new Image();
-  img.src = `https://flagcdn.com/w160/${currentCountry.code}.png`;
+  img.src = `https://flagcdn.com/w160/${countryCode}.png`;
   img.alt = 'Drapeau';
   img.style.cssText = 'width:100%;height:100%;object-fit:cover';
 
   img.onload = () => {
-    imgWrap.innerHTML = '';
-    imgWrap.appendChild(img);
+    // Vérifie que le pays n'a pas changé entre-temps
+    if (currentCountry && currentCountry.code === countryCode) {
+      imgWrap.innerHTML = '';
+      imgWrap.appendChild(img);
+    }
   };
   img.onerror = () => {
-    imgWrap.innerHTML = '';
-    fallback.textContent = currentCountry.emoji;
-    imgWrap.appendChild(fallback);
+    if (currentCountry && currentCountry.code === countryCode) {
+      imgWrap.innerHTML = `<div style="font-size:5rem;line-height:1">${countryEmoji}</div>`;
+    }
   };
-  imgWrap.innerHTML = '';
-  imgWrap.appendChild(fallback);
-  fallback.textContent = '⏳';
 
   // Clear hints
   document.getElementById('hint-zone').innerHTML = '';
