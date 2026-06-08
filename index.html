@@ -198,12 +198,13 @@
     background:var(--chip-bg); border:1.5px solid var(--chip-border);
     border-radius:50px; padding:0.6rem 1.3rem;
     font-family:'Nunito',sans-serif; font-size:1rem; font-weight:700;
-    color:var(--text); cursor:grab; user-select:none;
-    transition:border-color 0.15s,transform 0.15s,background 0.15s;
-    touch-action:none; box-shadow:var(--shadow);
+    color:var(--text); cursor:pointer; user-select:none;
+    transition:border-color 0.15s,transform 0.1s,background 0.15s;
+    box-shadow:var(--shadow); appearance:none; -webkit-appearance:none;
   }
-  .choice-chip:hover { border-color:var(--accent); background:#dce5fa; }
-  .choice-chip.dragging { opacity:0.4; transform:scale(0.95); }
+  .choice-chip:hover:not(:disabled) { border-color:var(--accent); background:#dce5fa; transform:translateY(-1px); }
+  .choice-chip:active:not(:disabled) { transform:scale(0.97); }
+  .choice-chip:disabled { cursor:default; }
   .choice-chip.correct-chip { border-color:var(--success); background:rgba(26,170,90,0.15); color:var(--success); }
   .choice-chip.wrong-chip { border-color:var(--danger); background:rgba(217,48,48,0.12); color:var(--danger); }
   .choice-chip.answer-chip { border-color:var(--accent); background:rgba(26,63,160,0.12); color:var(--accent); }
@@ -540,10 +541,10 @@ function getPalierDef(streak, P) {
   const all = [...POOL.n1,...POOL.n2,...POOL.n3,...POOL.n4];
   const defs = [
     // MODE 1 : Drapeau → glisser nom
-    { min:0,      max:P*1-1,   pool:[...POOL.n1],                              choices:3, mode:1, badgeLabel:'N1', label:'Niveau 1 — Voisins de la France',  modeLabel:'🏳 Drapeau → Glisser le nom' },
-    { min:P*1,    max:P*2-1,   pool:[...POOL.n1,...POOL.n2],                  choices:4, mode:1, badgeLabel:'N2', label:'Niveau 2 — Europe',                modeLabel:'🏳 Drapeau → Glisser le nom' },
-    { min:P*2,    max:P*3-1,   pool:[...POOL.n1,...POOL.n2,...POOL.n3],       choices:5, mode:1, badgeLabel:'N3', label:'Niveau 3 — Monde + DOM-TOM',       modeLabel:'🏳 Drapeau → Glisser le nom' },
-    { min:P*3,    max:P*4-1,   pool:all,                                       choices:6, mode:1, badgeLabel:'N4', label:'Niveau 4 — Expert !',              modeLabel:'🏳 Drapeau → Glisser le nom' },
+    { min:0,      max:P*1-1,   pool:[...POOL.n1],                              choices:3, mode:1, badgeLabel:'N1', label:'Niveau 1 — Voisins de la France',  modeLabel:'🏳 Drapeau → Cliquer le nom' },
+    { min:P*1,    max:P*2-1,   pool:[...POOL.n1,...POOL.n2],                  choices:4, mode:1, badgeLabel:'N2', label:'Niveau 2 — Europe',                modeLabel:'🏳 Drapeau → Cliquer le nom' },
+    { min:P*2,    max:P*3-1,   pool:[...POOL.n1,...POOL.n2,...POOL.n3],       choices:5, mode:1, badgeLabel:'N3', label:'Niveau 3 — Monde + DOM-TOM',       modeLabel:'🏳 Drapeau → Cliquer le nom' },
+    { min:P*3,    max:P*4-1,   pool:all,                                       choices:6, mode:1, badgeLabel:'N4', label:'Niveau 4 — Expert !',              modeLabel:'🏳 Drapeau → Cliquer le nom' },
     // MODE 2 : Nom écrit → cliquer drapeau
     { min:P*4,    max:P*5-1,   pool:[...POOL.n1,...POOL.n2,...POOL.n3],       choices:4, mode:2, badgeLabel:'N5', label:'Niveau 5 — Trouver le drapeau',    modeLabel:'📝 Nom → Cliquer le drapeau (4)' },
     { min:P*5,    max:P*6-1,   pool:all,                                       choices:5, mode:2, badgeLabel:'N6', label:'Niveau 6 — Expert drapeaux',       modeLabel:'📝 Nom → Cliquer le drapeau (5)' },
@@ -841,70 +842,48 @@ function buildMode1(zone, palier) {
 
   loadFlag(currentCountry, imgWrap);
 
-  // Drop zone
-  const dz = document.createElement('div');
-  dz.id = 'drop-zone';
-  dz.className = 'drop-zone';
-  dz.innerHTML = '<span>← Glisse le bon pays ici →</span>';
-  dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('dragover'); });
-  dz.addEventListener('dragleave', ()=>dz.classList.remove('dragover'));
-  dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('dragover'); if(draggedData) handleAnswer1(draggedData); });
-  zone.appendChild(dz);
-
-  // Chips
+  // Boutons cliquables (noms de pays)
   const grid = document.createElement('div');
   grid.id = 'choices-grid';
   grid.className = 'choices-grid';
-  currentChoices.forEach(c=>{
-    const chip = document.createElement('div');
-    chip.className = 'choice-chip';
-    chip.draggable = true;
-    chip.dataset.code = c.code;
-    chip.dataset.name = c.name;
-    chip.textContent = c.name;
-    chip.addEventListener('dragstart', e=>{ draggedData={code:c.code,name:c.name}; chip.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
-    chip.addEventListener('dragend', ()=>chip.classList.remove('dragging'));
-    // Touch
-    chip.addEventListener('touchstart', onTouchStart, {passive:false});
-    chip.addEventListener('touchmove', onTouchMove, {passive:false});
-    chip.addEventListener('touchend', onTouchEnd, {passive:false});
-    grid.appendChild(chip);
+  currentChoices.forEach(c => {
+    const btn = document.createElement('button');
+    btn.className = 'choice-chip';
+    btn.dataset.code = c.code;
+    btn.textContent = c.name;
+    btn.addEventListener('click', () => handleAnswer1({ code: c.code, name: c.name }));
+    grid.appendChild(btn);
   });
   zone.appendChild(grid);
 }
 
 function handleAnswer1(answer) {
-  if(!gameActive||answering) return;
-  answering=true;
+  if (!gameActive || answering) return;
+  answering = true;
   clearInterval(timerInterval);
-  document.querySelectorAll('.choice-chip').forEach(c=>{c.draggable=false;c.style.pointerEvents='none';});
+  document.querySelectorAll('.choice-chip').forEach(c => c.disabled = true);
 
   const isCorrect = answer.code === currentCountry.code;
   const elapsed = settings.timer - timeLeft;
-  const dz = document.getElementById('drop-zone');
   const fc = document.getElementById('flag-card');
 
-  if(isCorrect) {
+  if (isCorrect) {
     const bonus = elapsed<settings.bonus?3:elapsed<settings.timer*0.66?2:1;
     score+=10+bonus; bonusTotal+=bonus; streak++;
-    document.getElementById('score-display').textContent=score;
-    document.getElementById('streak-display').textContent=streak;
+    document.getElementById('score-display').textContent = score;
+    document.getElementById('streak-display').textContent = streak;
     document.getElementById('score-display').classList.add('pulse');
-    setTimeout(()=>document.getElementById('score-display').classList.remove('pulse'),400);
+    setTimeout(()=>document.getElementById('score-display').classList.remove('pulse'), 400);
     fc.classList.add('correct');
-    document.querySelectorAll('.choice-chip').forEach(c=>{ if(c.dataset.code===currentCountry.code) c.classList.add('correct-chip'); });
-    if(bonus>0) showBonusFlash(fc, bonus);
-    dz.style.borderColor='var(--success)';
-    dz.innerHTML=`<span style="color:var(--success);font-weight:700">✓ ${currentCountry.name}</span>`;
+    document.querySelectorAll('.choice-chip').forEach(c => { if(c.dataset.code===currentCountry.code) c.classList.add('correct-chip'); });
+    if (bonus>0) showBonusFlash(fc, bonus);
     setTimeout(()=>{ if(gameActive) nextQuestion(); }, 900);
   } else {
-    fc.classList.add('wrong','shake');
-    document.querySelectorAll('.choice-chip').forEach(c=>{
-      if(c.dataset.code===answer.code) c.classList.add('wrong-chip');
-      if(c.dataset.code===currentCountry.code) c.classList.add('answer-chip');
+    fc.classList.add('wrong', 'shake');
+    document.querySelectorAll('.choice-chip').forEach(c => {
+      if (c.dataset.code===answer.code) c.classList.add('wrong-chip');
+      if (c.dataset.code===currentCountry.code) c.classList.add('answer-chip');
     });
-    dz.style.borderColor='var(--danger)';
-    dz.innerHTML=`<span style="color:var(--danger);font-weight:700">✗ ${answer.name} — c'était ${currentCountry.name}</span>`;
     setTimeout(()=>endGame(currentCountry), 1600);
   }
 }
