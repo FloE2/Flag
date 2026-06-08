@@ -694,6 +694,7 @@
     </div>
 
     <button class="modal-close" onclick="closeSettings()">FERMER</button>
+    <button class="modal-close" style="margin-top:0.5rem;background:var(--danger);color:white;" onclick="confirmResetScores()">🗑 REMETTRE LES SCORES À ZÉRO</button>
   </div>
 </div>
 
@@ -954,6 +955,15 @@ function closeSettings() {
 // ===== SCORES =====
 const SCORES_KEY = 'flagmaster_scores_2026';
 
+function confirmResetScores() {
+  if (confirm('⚠️ Remettre TOUS les scores à zéro ?\nCette action est irréversible !')) {
+    localStorage.removeItem(SCORES_KEY);
+    renderScoresPreview();
+    document.getElementById('record-display').textContent = 'Aucun record pour l\'instant !';
+    alert('✅ Scores remis à zéro !');
+  }
+}
+
 function getScores() {
   try {
     return JSON.parse(localStorage.getItem(SCORES_KEY)) || [];
@@ -1030,6 +1040,7 @@ let currentChoices = [];
 let timerInterval = null;
 let timeLeft = 0;
 let gameActive = false;
+let answering = false; // verrou anti-double-réponse
 let usedCountries = [];
 let currentPalier = 0;
 let hintsShown = [];
@@ -1114,6 +1125,7 @@ function startGame() {
   bonusTotal = 0;
   usedCountries = [];
   gameActive = true;
+  answering = false;
 
   document.getElementById('player-name-display').textContent = playerName;
   document.getElementById('player-avatar').textContent = playerName[0].toUpperCase();
@@ -1140,6 +1152,7 @@ function renderPalierBadges() {
 function nextQuestion() {
   if (timerInterval) clearInterval(timerInterval);
   hintsShown = [];
+  answering = false; // libère le verrou pour la nouvelle question
 
   const palier = getPalier();
   renderPalierBadges();
@@ -1181,11 +1194,16 @@ function nextQuestion() {
   const flagCard = document.getElementById('flag-card');
   flagCard.classList.remove('correct', 'wrong');
 
-  // Drop zone
+  // Drop zone — reset complet
   const dropZone = document.getElementById('drop-zone');
-  dropZone.innerHTML = '<span id="drop-hint">← Glisse le bon pays ici →</span>';
+  dropZone.innerHTML = '';
+  const hint = document.createElement('span');
+  hint.id = 'drop-hint';
+  hint.textContent = '← Glisse le bon pays ici →';
+  dropZone.appendChild(hint);
   dropZone.classList.remove('dragover');
   dropZone.style.borderColor = '';
+  dropZone.style.background = '';
 
   // Render choices
   renderChoices();
@@ -1345,8 +1363,15 @@ function onTouchEnd(e) {
 
 // ===== ANSWER HANDLING =====
 function handleAnswer(answer) {
-  if (!gameActive) return;
+  if (!gameActive || answering) return; // verrou : ignore double-drop
+  answering = true;
   clearInterval(timerInterval);
+
+  // Désactiver tous les chips pendant la transition
+  document.querySelectorAll('.choice-chip').forEach(c => {
+    c.draggable = false;
+    c.style.pointerEvents = 'none';
+  });
 
   const isCorrect = answer && answer.code === currentCountry.code;
   const elapsed = settings.timer - timeLeft;
