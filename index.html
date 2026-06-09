@@ -316,7 +316,7 @@
 // (Console Firebase → Paramètres projet → Tes applications → Config)
 // =====================================================================
 import { initializeApp }      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, push, query, orderByChild, limitToLast, onValue, get, remove }
+import { getDatabase, ref, set, query, orderByChild, limitToLast, onValue, get, remove, child }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const FIREBASE_CONFIG = {
@@ -347,13 +347,33 @@ window._fb = {
   async saveScore(entry) {
     if (!window._fbReady) return false;
     try {
-      await push(scoresRef, {
-        name:   entry.name,
-        score:  entry.score,
-        streak: entry.streak,
-        palier: entry.palier,
-        date:   entry.date
-      });
+      // Clé = prénom normalisé (minuscules, sans accents, sans espaces)
+      // → 1 seule entrée par joueur, on écrase seulement si meilleur score
+      const key = entry.name
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '_')
+        .slice(0, 30);
+
+      const playerRef = child(scoresRef, key);
+
+      // Lire le score actuel avant d'écraser
+      const snap = await get(playerRef);
+      const existing = snap.val();
+
+      if (!existing || entry.score > existing.score) {
+        // Nouveau record pour ce joueur → on sauvegarde
+        await set(playerRef, {
+          name:   entry.name,
+          score:  entry.score,
+          streak: entry.streak,
+          palier: entry.palier,
+          date:   entry.date
+        });
+        console.log(`✅ Score sauvegardé pour ${entry.name} : ${entry.score} pts`);
+      } else {
+        console.log(`ℹ️ Score inférieur au record de ${entry.name} (${existing.score} pts) — non écrasé`);
+      }
       return true;
     } catch(e) { console.warn('Firebase saveScore:', e.message); return false; }
   },
@@ -365,8 +385,13 @@ window._fb = {
     onValue(q, snap => {
       const raw = snap.val();
       if (!raw) { callback([]); return; }
-      const scores = Object.entries(raw)
-        .map(([id, v]) => ({ id, ...v }))
+      // Dédupliquer par nom (garde le meilleur score par joueur)
+      const byName = {};
+      Object.entries(raw).forEach(([id, v]) => {
+        const n = v.name ? v.name.toLowerCase() : id;
+        if (!byName[n] || v.score > byName[n].score) byName[n] = { id, ...v };
+      });
+      const scores = Object.values(byName)
         .sort((a, b) => b.score - a.score || b.streak - a.streak)
         .slice(0, 20);
       callback(scores);
@@ -381,8 +406,12 @@ window._fb = {
       const snap = await get(q);
       const raw = snap.val();
       if (!raw) return [];
-      return Object.entries(raw)
-        .map(([id, v]) => ({ id, ...v }))
+      const byName = {};
+      Object.entries(raw).forEach(([id, v]) => {
+        const n = v.name ? v.name.toLowerCase() : id;
+        if (!byName[n] || v.score > byName[n].score) byName[n] = { id, ...v };
+      });
+      return Object.values(byName)
         .sort((a, b) => b.score - a.score || b.streak - a.streak)
         .slice(0, 20);
     } catch(e) { console.warn('Firebase get:', e.message); return null; }
