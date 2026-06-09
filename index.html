@@ -88,6 +88,11 @@
   .score-row:last-child { border-bottom:none; }
   .score-rank { color:var(--muted); width:26px; font-weight:700; }
   .score-rank.gold { color:var(--accent2); }
+  .score-name-clickable, .lb-name-clickable {
+    cursor:pointer; transition:color 0.15s;
+  }
+  .score-name-clickable:hover { color:var(--accent2); text-decoration:underline; }
+  .lb-name-clickable:hover { color:var(--accent2); text-decoration:underline; }
   .score-name { flex:1; padding:0 0.5rem; font-weight:700; }
   .score-pts { color:var(--accent); font-weight:900; }
   .score-serie { color:var(--muted); font-size:0.8rem; }
@@ -808,7 +813,7 @@ function renderScoresPreview() {
   el.innerHTML = scores.map((s,i) => `
     <div class="score-row">
       <span class="score-rank ${i===0?'gold':''}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.'}</span>
-      <span class="score-name">${esc(s.name)}</span>
+      <span class="score-name score-name-clickable" onclick="playAsName('${esc(s.name)}')" title="Jouer avec ce prénom">${esc(s.name)} ▶</span>
       <span class="score-serie">${s.streak}🏳</span>
       <span class="score-pts">${s.score} pts</span>
     </div>`).join('');
@@ -829,17 +834,21 @@ function renderLeaderboard() {
   el.innerHTML = statusLine + scores.slice(0,20).map((s,i)=>`
     <div class="lb-row">
       <div class="lb-rank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)}</div>
-      <div class="lb-name">${esc(s.name)}</div>
+      <div class="lb-name lb-name-clickable" onclick="playAsName('${esc(s.name)}')" title="Jouer avec ce prénom">${esc(s.name)} ▶</div>
       <div class="lb-streak">${s.streak}🏳</div>
       <div class="lb-score">${s.score} pts</div>
     </div>`).join('');
 }
 
 async function confirmResetScores() {
+  const pwd = prompt('🔐 Mot de passe administrateur :');
+  if (pwd === null) return; // annulé
+  if (pwd !== 'HG2026') {
+    alert('❌ Mot de passe incorrect !');
+    return;
+  }
   if (!confirm('⚠️ Remettre TOUS les scores à zéro ?\nCette action est irréversible !')) return;
-  // Vider local
   localStorage.removeItem(SCORES_KEY_LOCAL);
-  // Vider Firebase
   if (window._fb && window._fbReady) {
     const ok = await window._fb.resetAllScores();
     alert(ok ? '✅ Scores Firebase et locaux remis à zéro !' : '⚠️ Local vidé, mais erreur Firebase.');
@@ -848,6 +857,24 @@ async function confirmResetScores() {
   }
   window._fbScores = [];
   renderScoresPreview();
+}
+
+// Jouer directement avec un prénom du classement
+function playAsName(name) {
+  document.getElementById('player-name').value = name;
+  checkName();
+  goHome();
+  // Petit délai pour laisser l'écran d'accueil s'afficher
+  setTimeout(() => {
+    document.getElementById('player-name').value = name;
+    checkName();
+    // Scroll vers le bouton jouer
+    document.getElementById('btn-start').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Flash visuel sur le champ
+    const input = document.getElementById('player-name');
+    input.style.borderColor = 'var(--accent2)';
+    setTimeout(() => input.style.borderColor = '', 1000);
+  }, 100);
 }
 
 function esc(s) { return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
