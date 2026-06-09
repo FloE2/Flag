@@ -307,6 +307,104 @@
   .level-up-sub { font-size:1.2rem; color:rgba(255,255,255,0.8); font-weight:700; }
   .level-up-mode { background:white; color:var(--accent); border-radius:50px; padding:0.5rem 1.5rem; font-weight:900; font-size:1rem; }
 </style>
+
+<!-- Firebase SDK (module ES) -->
+<script type="module">
+// =====================================================================
+// 🔧 CONFIGURATION FIREBASE
+// Copie-colle ici les valeurs de ton projet Firebase
+// (Console Firebase → Paramètres projet → Tes applications → Config)
+// =====================================================================
+import { initializeApp }      from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, push, query, orderByChild, limitToLast, onValue, get, remove }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyDjgww-46IxYxRSBPLsaLzCSSGlSsr2Sz8",
+  authDomain:        "flag-master-85bac.firebaseapp.com",
+  databaseURL:       "https://flag-master-85bac-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "flag-master-85bac",
+  storageBucket:     "flag-master-85bac.firebasestorage.app",
+  messagingSenderId: "815137529808",
+  appId:             "1:815137529808:web:2c530d6bf840ba2eade3d5"
+};
+// =====================================================================
+
+let app, db, scoresRef;
+try {
+  app       = initializeApp(FIREBASE_CONFIG);
+  db        = getDatabase(app);
+  scoresRef = ref(db, 'flagmaster/scores');
+  window._fbReady = true;
+  console.log('✅ Firebase Realtime Database initialisé');
+} catch(e) {
+  console.warn('❌ Firebase init error:', e.message);
+  window._fbReady = false;
+}
+
+window._fb = {
+
+  async saveScore(entry) {
+    if (!window._fbReady) return false;
+    try {
+      await push(scoresRef, {
+        name:   entry.name,
+        score:  entry.score,
+        streak: entry.streak,
+        palier: entry.palier,
+        date:   entry.date
+      });
+      return true;
+    } catch(e) { console.warn('Firebase saveScore:', e.message); return false; }
+  },
+
+  // Écoute temps réel → callback(scores[]) à chaque mise à jour
+  listenTopScores(callback) {
+    if (!window._fbReady) { callback(null); return; }
+    const q = query(scoresRef, orderByChild('score'), limitToLast(20));
+    onValue(q, snap => {
+      const raw = snap.val();
+      if (!raw) { callback([]); return; }
+      const scores = Object.entries(raw)
+        .map(([id, v]) => ({ id, ...v }))
+        .sort((a, b) => b.score - a.score || b.streak - a.streak)
+        .slice(0, 20);
+      callback(scores);
+    }, err => { console.warn('Firebase listen:', err.message); callback(null); });
+  },
+
+  // Lecture ponctuelle (fin de partie)
+  async getTopScores() {
+    if (!window._fbReady) return null;
+    try {
+      const q = query(scoresRef, orderByChild('score'), limitToLast(20));
+      const snap = await get(q);
+      const raw = snap.val();
+      if (!raw) return [];
+      return Object.entries(raw)
+        .map(([id, v]) => ({ id, ...v }))
+        .sort((a, b) => b.score - a.score || b.streak - a.streak)
+        .slice(0, 20);
+    } catch(e) { console.warn('Firebase get:', e.message); return null; }
+  },
+
+  async resetAllScores() {
+    if (!window._fbReady) return false;
+    try { await remove(scoresRef); return true; }
+    catch(e) { console.warn('Firebase reset:', e.message); return false; }
+  }
+};
+
+// Lance l'écoute temps réel dès que Firebase est prêt
+window._fb.listenTopScores(scores => {
+  window._fbScores = scores; // cache
+  if (typeof renderScoresPreview === 'function') renderScoresPreview();
+  if (typeof renderLeaderboard === 'function') {
+    const lb = document.getElementById('screen-leaderboard');
+    if (lb && lb.classList.contains('active')) renderLeaderboard();
+  }
+});
+<\/script>
 </head>
 <body>
 
@@ -605,28 +703,80 @@ function closeSettings() {
 }
 
 // =====================================================================
-// SCORES
+// SCORES — Firebase Realtime Database + fallback localStorage
 // =====================================================================
-function getScores() { try { return JSON.parse(localStorage.getItem(SCORES_KEY))||[]; } catch { return []; } }
-function saveScore(entry) {
-  let s = getScores();
+const SCORES_KEY_LOCAL = 'flagmaster_scores_local'; // fallback hors ligne
+
+// Cache Firebase mis à jour en temps réel par le module Firebase
+// window._fbScores = [] quand Firebase répond
+// window._fbScores = null quand Firebase est indisponible
+
+function getLocalScores() {
+  try { return JSON.parse(localStorage.getItem(SCORES_KEY_LOCAL)) || []; } catch { return []; }
+}
+function saveLocalScore(entry) {
+  let s = getLocalScores();
   s.push(entry);
   s.sort((a,b)=>b.score-a.score||b.streak-a.streak);
   s = s.slice(0,50);
-  localStorage.setItem(SCORES_KEY, JSON.stringify(s));
-  return s;
+  localStorage.setItem(SCORES_KEY_LOCAL, JSON.stringify(s));
 }
-function getRecord() { const s=getScores(); return s.length>0?s[0]:null; }
+
+// Sauvegarde : Firebase en priorité, localStorage en fallback
+async function saveScore(entry) {
+  // Toujours sauvegarder en local (fallback instantané)
+  saveLocalScore(entry);
+  // Tenter Firebase
+  if (window._fb && window._fbReady) {
+    const ok = await window._fb.saveScore(entry);
+    if (ok) console.log('Score sauvegardé sur Firebase');
+    else console.warn('Firebase indisponible, score en local uniquement');
+  }
+  // Retourne les scores actuels (Firebase cache ou local)
+  return getDisplayScores();
+}
+
+function getDisplayScores() {
+  if (window._fbScores && window._fbScores.length > 0) return window._fbScores;
+  return getLocalScores();
+}
+
+function getRecord() {
+  const s = getDisplayScores();
+  return s.length > 0 ? s[0] : null;
+}
+
+// Indicateur de connexion Firebase
+function getFirebaseStatus() {
+  if (!window._fbReady) return 'local';
+  if (window._fbScores === null) return 'offline';
+  return 'online';
+}
 
 function renderScoresPreview() {
-  const scores = getScores().slice(0,5);
+  const scores = getDisplayScores().slice(0, 5);
   const rec = getRecord();
-  document.getElementById('record-display').textContent = rec
-    ? `${rec.name} — ${rec.score} pts (${rec.streak} drapeaux)`
-    : 'Aucun record pour l\'instant !';
+  const status = getFirebaseStatus();
+
+  // Badge de statut Firebase
+  const statusBadge = {
+    online:  '<span style="color:var(--success);font-size:0.75rem">● En ligne</span>',
+    offline: '<span style="color:var(--danger);font-size:0.75rem">● Hors ligne</span>',
+    local:   '<span style="color:var(--muted);font-size:0.75rem">● Local (config Firebase manquante)</span>',
+  }[status];
+
+  const recEl = document.getElementById('record-display');
+  if (recEl) recEl.innerHTML = rec
+    ? `${esc(rec.name)} — ${rec.score} pts (${rec.streak} drapeaux) &nbsp;${statusBadge}`
+    : `Aucun record pour l'instant ! &nbsp;${statusBadge}`;
+
   const el = document.getElementById('scores-list');
-  if (!scores.length) { el.innerHTML='<div style="color:var(--muted);font-size:0.9rem">Sois le premier !</div>'; return; }
-  el.innerHTML = scores.map((s,i)=>`
+  if (!el) return;
+  if (!scores.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:0.9rem">Sois le premier !</div>';
+    return;
+  }
+  el.innerHTML = scores.map((s,i) => `
     <div class="score-row">
       <span class="score-rank ${i===0?'gold':''}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.'}</span>
       <span class="score-name">${esc(s.name)}</span>
@@ -636,10 +786,18 @@ function renderScoresPreview() {
 }
 
 function renderLeaderboard() {
-  const scores = getScores();
+  const scores = getDisplayScores();
   const el = document.getElementById('lb-table');
-  if (!scores.length) { el.innerHTML='<div style="padding:2rem;text-align:center;color:var(--muted)">Aucun score</div>'; return; }
-  el.innerHTML = scores.slice(0,20).map((s,i)=>`
+  if (!el) return;
+  const status = getFirebaseStatus();
+  const statusLine = status === 'online'
+    ? '<div style="padding:0.6rem 1.4rem;font-size:0.78rem;color:var(--success);border-bottom:1px solid var(--border)">🌐 Classement mondial en temps réel</div>'
+    : '<div style="padding:0.6rem 1.4rem;font-size:0.78rem;color:var(--muted);border-bottom:1px solid var(--border)">💾 Classement local (hors ligne)</div>';
+  if (!scores.length) {
+    el.innerHTML = statusLine + '<div style="padding:2rem;text-align:center;color:var(--muted)">Aucun score</div>';
+    return;
+  }
+  el.innerHTML = statusLine + scores.slice(0,20).map((s,i)=>`
     <div class="lb-row">
       <div class="lb-rank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)}</div>
       <div class="lb-name">${esc(s.name)}</div>
@@ -648,12 +806,19 @@ function renderLeaderboard() {
     </div>`).join('');
 }
 
-function confirmResetScores() {
-  if (confirm('⚠️ Remettre TOUS les scores à zéro ?\nCette action est irréversible !')) {
-    localStorage.removeItem(SCORES_KEY);
-    renderScoresPreview();
-    alert('✅ Scores remis à zéro !');
+async function confirmResetScores() {
+  if (!confirm('⚠️ Remettre TOUS les scores à zéro ?\nCette action est irréversible !')) return;
+  // Vider local
+  localStorage.removeItem(SCORES_KEY_LOCAL);
+  // Vider Firebase
+  if (window._fb && window._fbReady) {
+    const ok = await window._fb.resetAllScores();
+    alert(ok ? '✅ Scores Firebase et locaux remis à zéro !' : '⚠️ Local vidé, mais erreur Firebase.');
+  } else {
+    alert('✅ Scores locaux remis à zéro !');
   }
+  window._fbScores = [];
+  renderScoresPreview();
 }
 
 function esc(s) { return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -1219,12 +1384,17 @@ function endGame(missed) {
   document.getElementById('stat-missed').textContent=missed?missed.name:'—';
 
   const entry={name:playerName,score,streak,palier:palier.badgeLabel,date:new Date().toISOString()};
-  const scores=saveScore(entry);
-  const banner=document.getElementById('new-record-banner');
-  if(scores.length>=1&&scores[0].score===score&&scores[0].name===playerName&&(scores.length===1||scores[1].score<score)){
-    banner.style.display='block';
-  } else { banner.style.display='none'; }
+  // Afficher l'écran immédiatement, puis mettre à jour la bannière record après Firebase
   showScreen('gameover');
+  document.getElementById('new-record-banner').style.display='none';
+
+  saveScore(entry).then(scores => {
+    if (!scores) return;
+    const banner = document.getElementById('new-record-banner');
+    const isRecord = scores.length>=1 && scores[0].score===score && scores[0].name===playerName
+                     && (scores.length===1 || scores[1].score < score);
+    if (banner) banner.style.display = isRecord ? 'block' : 'none';
+  });
 }
 
 // =====================================================================
