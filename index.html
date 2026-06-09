@@ -128,6 +128,25 @@
   .setting-row .val { color:var(--accent); font-weight:900; }
   .modal-close { background:var(--accent); color:white; border:none; border-radius:50px; padding:0.7rem 2rem; font-family:'Bebas Neue',sans-serif; font-size:1.2rem; letter-spacing:2px; cursor:pointer; width:100%; margin-top:0.5rem; }
   .modal-reset { background:var(--danger); color:white; border:none; border-radius:50px; padding:0.65rem 2rem; font-family:'Nunito',sans-serif; font-size:0.9rem; font-weight:700; cursor:pointer; width:100%; margin-top:0.5rem; }
+  .modal-save {
+    background: var(--success); color:white; border:none; border-radius:50px;
+    padding:0.85rem 2rem; font-family:'Bebas Neue',sans-serif; font-size:1.3rem;
+    letter-spacing:2px; cursor:pointer; width:100%; margin-top:0.5rem;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 4px 14px rgba(26,170,90,0.3);
+  }
+  .modal-save:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(26,170,90,0.4); }
+  .modal-save.saved {
+    background: #1aaa5a;
+    animation: savedPulse 0.5s ease;
+  }
+  @keyframes savedPulse { 0%{transform:scale(1)} 50%{transform:scale(1.04)} 100%{transform:scale(1)} }
+  .save-feedback {
+    text-align:center; font-size:0.85rem; font-weight:700;
+    color: var(--success); min-height:20px; margin-top:4px;
+    transition: opacity 0.3s;
+  }
+  .settings-unsaved { outline: 2px solid var(--accent2); outline-offset:2px; border-radius:4px; }
 
   /* GAME SCREEN */
   #screen-game { gap:1.2rem; padding:1.2rem 1rem; justify-content:flex-start; padding-top:1.2rem; }
@@ -335,11 +354,12 @@ const FIREBASE_CONFIG = {
 };
 // =====================================================================
 
-let app, db, scoresRef;
+let app, db, scoresRef, settingsRef;
 try {
-  app       = initializeApp(FIREBASE_CONFIG);
-  db        = getDatabase(app);
-  scoresRef = ref(db, 'flagmaster/scores');
+  app         = initializeApp(FIREBASE_CONFIG);
+  db          = getDatabase(app);
+  scoresRef   = ref(db, 'flagmaster/scores');
+  settingsRef = ref(db, 'flagmaster/settings');
   window._fbReady = true;
   console.log('✅ Firebase Realtime Database initialisé');
 } catch(e) {
@@ -426,17 +446,46 @@ window._fb = {
     if (!window._fbReady) return false;
     try { await remove(scoresRef); return true; }
     catch(e) { console.warn('Firebase reset:', e.message); return false; }
+  },
+
+  // Sauvegarder les paramètres globaux
+  async saveSettings(s) {
+    if (!window._fbReady) return false;
+    try {
+      await set(settingsRef, {
+        timer: s.timer, hint1: s.hint1, hint2: s.hint2,
+        bonus: s.bonus, palier: s.palier
+      });
+      console.log('✅ Paramètres sauvegardés sur Firebase');
+      return true;
+    } catch(e) { console.warn('Firebase saveSettings:', e.message); return false; }
+  },
+
+  // Écouter les paramètres en temps réel (sync multi-appareils)
+  listenSettings(callback) {
+    if (!window._fbReady) { callback(null); return; }
+    onValue(settingsRef, snap => {
+      const data = snap.val();
+      callback(data); // null si pas encore de settings sur Firebase
+    }, err => { console.warn('Firebase listenSettings:', err.message); callback(null); });
   }
 };
 
 // Lance l'écoute temps réel dès que Firebase est prêt
 window._fb.listenTopScores(scores => {
-  window._fbScores = scores; // cache
+  window._fbScores = scores;
   if (typeof renderScoresPreview === 'function') renderScoresPreview();
   if (typeof renderLeaderboard === 'function') {
     const lb = document.getElementById('screen-leaderboard');
     if (lb && lb.classList.contains('active')) renderLeaderboard();
   }
+});
+
+// Écoute des paramètres globaux en temps réel
+window._fb.listenSettings(fbSettings => {
+  if (!fbSettings) return; // pas encore de settings sur Firebase → on garde local
+  // Appliquer les settings Firebase sur tous les appareils connectés
+  if (typeof applyRemoteSettings === 'function') applyRemoteSettings(fbSettings);
 });
 </script>
 </head>
@@ -450,25 +499,27 @@ window._fb.listenTopScores(scores => {
     <h2>⚙ Paramètres</h2>
     <div class="setting-row">
       <label>⏱ Durée par réponse : <span class="val" id="val-timer">15</span>s</label>
-      <input type="range" min="5" max="30" value="15" id="set-timer" oninput="updateSettings()">
+      <input type="range" min="5" max="30" value="15" id="set-timer" oninput="previewSettings()">
     </div>
     <div class="setting-row">
       <label>💡 Indice Continent après : <span class="val" id="val-hint1">5</span>s</label>
-      <input type="range" min="2" max="20" value="5" id="set-hint1" oninput="updateSettings()">
+      <input type="range" min="2" max="20" value="5" id="set-hint1" oninput="previewSettings()">
     </div>
     <div class="setting-row">
       <label>🔤 Indice Initiale après : <span class="val" id="val-hint2">10</span>s</label>
-      <input type="range" min="5" max="25" value="10" id="set-hint2" oninput="updateSettings()">
+      <input type="range" min="5" max="25" value="10" id="set-hint2" oninput="previewSettings()">
     </div>
     <div class="setting-row">
       <label>⚡ Bonus vitesse (&lt;<span class="val" id="val-bonus">5</span>s) : +3 pts</label>
-      <input type="range" min="2" max="10" value="5" id="set-bonus" oninput="updateSettings()">
+      <input type="range" min="2" max="10" value="5" id="set-bonus" oninput="previewSettings()">
     </div>
     <div class="setting-row">
       <label>📊 Palier tous les <span class="val" id="val-palier">5</span> drapeaux</label>
       <div class="desc">Augmente la difficulté toutes les N bonnes réponses</div>
-      <input type="range" min="3" max="10" value="5" id="set-palier" oninput="updateSettings()">
+      <input type="range" min="3" max="10" value="5" id="set-palier" oninput="previewSettings()">
     </div>
+    <button class="modal-save" id="btn-save-settings" onclick="saveSettingsExplicit()">💾 ENREGISTRER LES PRÉFÉRENCES</button>
+    <div class="save-feedback" id="save-feedback"></div>
     <button class="modal-close" onclick="closeSettings()">FERMER</button>
     <button class="modal-reset" onclick="confirmResetScores()">🗑 Remettre les scores à zéro</button>
   </div>
@@ -700,11 +751,26 @@ const SCORES_KEY   = 'flagmaster_scores_2026';
 let settings = { timer:15, hint1:5, hint2:10, bonus:5, palier:5 };
 
 function loadSettings() {
+  // Charger d'abord les settings locaux (instantané)
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY));
     if (s) settings = { ...settings, ...s };
   } catch {}
   applySettingsToUI();
+  // Firebase écrasera via listenSettings si des settings globaux existent
+}
+
+// Appelé par Firebase quand les settings distants arrivent
+function applyRemoteSettings(fbSettings) {
+  const merged = { ...settings, ...fbSettings };
+  // Ne mettre à jour que si les valeurs diffèrent (évite boucle infinie)
+  const changed = Object.keys(merged).some(k => merged[k] !== settings[k]);
+  if (!changed) return;
+  settings = merged;
+  // Sauvegarder aussi en local pour le fallback hors-ligne
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  applySettingsToUI();
+  console.log('🔄 Paramètres synchronisés depuis Firebase');
 }
 
 function applySettingsToUI() {
@@ -720,15 +786,63 @@ function applySettingsToUI() {
   document.getElementById('val-palier').textContent = settings.palier;
 }
 
-function updateSettings() {
+// Prévisualisation sans sauvegarder (pendant le drag du slider)
+function previewSettings() {
   settings.timer  = parseInt(document.getElementById('set-timer').value);
   settings.hint1  = parseInt(document.getElementById('set-hint1').value);
   settings.hint2  = parseInt(document.getElementById('set-hint2').value);
   settings.bonus  = parseInt(document.getElementById('set-bonus').value);
   settings.palier = parseInt(document.getElementById('set-palier').value);
   applySettingsToUI();
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  // Indiquer que les préférences ne sont pas encore sauvegardées
+  const btn = document.getElementById('btn-save-settings');
+  const fb = document.getElementById('save-feedback');
+  if (btn) btn.textContent = '💾 ENREGISTRER LES PRÉFÉRENCES';
+  if (fb) { fb.textContent = '⚠️ Modifications non sauvegardées'; fb.style.color='var(--accent2)'; }
 }
+
+// Sauvegarde explicite au clic du bouton
+async function saveSettingsExplicit() {
+  settings.timer  = parseInt(document.getElementById('set-timer').value);
+  settings.hint1  = parseInt(document.getElementById('set-hint1').value);
+  settings.hint2  = parseInt(document.getElementById('set-hint2').value);
+  settings.bonus  = parseInt(document.getElementById('set-bonus').value);
+  settings.palier = parseInt(document.getElementById('set-palier').value);
+  applySettingsToUI();
+
+  // Sauvegarder en local (toujours)
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+
+  // Sauvegarder sur Firebase (global, tous appareils)
+  const btn = document.getElementById('btn-save-settings');
+  const fb  = document.getElementById('save-feedback');
+  if (btn) btn.textContent = '⏳ Sauvegarde en cours…';
+
+  let fbOk = false;
+  if (window._fb && window._fbReady) {
+    fbOk = await window._fb.saveSettings(settings);
+  }
+
+  // Feedback visuel
+  if (btn) {
+    btn.textContent = '✅ PRÉFÉRENCES ENREGISTRÉES !';
+    btn.classList.add('saved');
+    setTimeout(() => {
+      btn.textContent = '💾 ENREGISTRER LES PRÉFÉRENCES';
+      btn.classList.remove('saved');
+    }, 2500);
+  }
+  if (fb) {
+    fb.textContent = fbOk
+      ? '🌐 Sauvegardé sur Firebase — actif sur tous les appareils !'
+      : '💾 Sauvegardé en local uniquement (Firebase indisponible)';
+    fb.style.color = fbOk ? 'var(--success)' : 'var(--accent2)';
+    setTimeout(() => { fb.textContent = ''; }, 4000);
+  }
+}
+
+// Garde pour compatibilité (appelé nulle part mais au cas où)
+function updateSettings() { saveSettingsExplicit(); }
 
 function openSettings()  { document.getElementById('settings-modal').classList.add('open'); }
 function closeSettings() {
